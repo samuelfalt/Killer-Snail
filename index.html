@@ -289,6 +289,8 @@
       spawnRadius: 5000,
       randomSpawn: false,
     };
+    let forceRespawn = false;
+    let chaseStartedAt = null;
 
     const map = L.map("map", { zoomControl: true, worldCopyJump: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -321,6 +323,15 @@
 
     function updateMessage(text) {
       messageEl.textContent = text;
+    }
+
+    function formatElapsed() {
+      if (!chaseStartedAt) return "0s";
+      const elapsedMs = Date.now() - chaseStartedAt;
+      const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      return `${mins}:${secs.toString().padStart(2, "0")}`;
     }
 
     function setCharacter(id) {
@@ -471,14 +482,14 @@
       const status = dist > 3 ? "Live" : "Arrived";
       setStatus("Location locked", status);
       updateMessage(
-        `You: ${userCoords[0].toFixed(5)} · ${userCoords[1].toFixed(5)} | ` +
-        `Chaser: ${snailCoords[0].toFixed(5)} · ${snailCoords[1].toFixed(5)} · Dist: ${dist.toFixed(1)}m · Speed: ${speedKmh.toFixed(1)} km/h`
+        `Dist: ${dist.toFixed(1)} m · Speed: ${speedKmh.toFixed(1)} km/h · Time: ${formatElapsed()}`
       );
       if (status !== "Live") {
         snailMarker.bindPopup("Chaser (arrived)").openPopup();
         userMarker?.openPopup();
         gameStarted = false;
         loseOverlay.classList.remove("hidden");
+        forceRespawn = true;
       }
     }
 
@@ -510,6 +521,8 @@
         overlay.classList.remove("hidden");
         setStatus("Selection", "Idle");
         updateMessage("Pick a character to start chasing.");
+        forceRespawn = false;
+        chaseStartedAt = null;
       });
 
       openSettingsBtn.addEventListener("click", () => {
@@ -533,6 +546,9 @@
         spawnRadiusInput.value = config.spawnRadius;
         settingsOverlay.classList.add("hidden");
         setCharacter(selectedCharId); // reapply speeds/controls
+        if (!gameStarted) {
+          updateMessage("Settings applied. Start the chase!");
+        }
       });
 
       resetGameBtn.addEventListener("click", () => {
@@ -546,18 +562,26 @@
         snailCoords = null;
         updateMessage("Pick a character to start chasing.");
         setStatus("Selection", "Idle");
+        forceRespawn = true;
+        chaseStartedAt = null;
       });
 
       startBtn.addEventListener("click", () => {
         loseOverlay.classList.add("hidden");
         gameStarted = true;
-        if (snailMarker) {
-          map.removeLayer(snailMarker);
-          snailMarker = null;
+        if (forceRespawn || !snailCoords || !snailMarker) {
+          if (snailMarker) {
+            map.removeLayer(snailMarker);
+            snailMarker = null;
+          }
+          snailCoords = null;
+          placeSnailRandom();
+        } else if (snailMarker) {
+          snailMarker.setIcon(makeEmojiIcon(selectedEmoji));
         }
-        snailCoords = null;
-        placeSnailRandom();
         overlay.classList.add("hidden");
+        forceRespawn = false;
+        chaseStartedAt = Date.now();
       });
 
       buildCharacterGrid();
