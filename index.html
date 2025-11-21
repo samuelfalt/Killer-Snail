@@ -272,6 +272,10 @@
           <button id="settings-apply" class="start-btn" type="button">Apply</button>
         </div>
       </div>
+      <div style="margin-top:10px;">
+        <label class="status">Player name</label>
+        <input id="player-name" type="text" maxlength="24" placeholder="Leave empty for 'You'" style="padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);width:100%;" />
+      </div>
     </div>
   </div>
   <div class="overlay hidden" id="room-settings-overlay">
@@ -340,6 +344,7 @@
     const randomSpawnToggle = document.getElementById("random-spawn");
     const settingsApply = document.getElementById("settings-apply");
     const settingsCancel = document.getElementById("settings-cancel");
+    const playerNameInput = document.getElementById("player-name");
     const modeSoloBtn = document.getElementById("mode-solo");
     const modeRoomBtn = document.getElementById("mode-room");
     const roomStatus = document.getElementById("room-status");
@@ -727,6 +732,13 @@
         if (!gameStarted) {
           updateMessage("Settings applied. Start the chase!");
         }
+        const nameVal = playerNameInput.value.trim();
+        if (nameVal !== "") {
+          playerNickname = nameVal.slice(0, 24);
+        } else {
+          playerNickname = "You";
+        }
+        updatePlayerLabel(userMarker);
       });
 
       modeSoloBtn.addEventListener("click", () => {
@@ -734,6 +746,9 @@
         roomLocked = false;
         roomCode = "";
         setRoomStatus();
+        setCharacter(selectedCharId);
+        forceRespawn = true;
+        updateMessage("Solo mode selected. Pick a chaser and start.");
       });
 
       modeRoomBtn.addEventListener("click", () => {
@@ -754,11 +769,6 @@
         if (!code) {
           alert("Enter a room code to join.");
           return;
-        }
-        const nick = prompt("Enter your nickname for this room:", playerNickname);
-        if (nick !== null && nick.trim() !== "") {
-          playerNickname = nick.trim().slice(0, 24);
-          updatePlayerLabel(userMarker);
         }
         gameMode = "room";
         roomCode = code.slice(0, 8);
@@ -814,6 +824,13 @@
         speedValue.textContent = speedKmh.toFixed(1);
         forceRespawn = true;
         startChase();
+        const nameVal = playerNameInput.value.trim();
+        if (nameVal !== "") {
+          playerNickname = nameVal.slice(0, 24);
+        } else {
+          playerNickname = "You";
+        }
+        updatePlayerLabel(userMarker);
       });
 
       leaveRoomBtn.addEventListener("click", () => {
