@@ -195,6 +195,7 @@
       <button id="restart-snail" class="btn" type="button">Reset</button>
       <button id="open-selection" class="btn" type="button">Change character</button>
       <button id="open-settings" class="btn" type="button">Settings</button>
+      <button id="leave-room" class="btn" type="button" style="display:none;">Leave room</button>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
       <div class="pill" id="pill">Idle</div>
@@ -273,6 +274,43 @@
       </div>
     </div>
   </div>
+  <div class="overlay hidden" id="room-settings-overlay">
+    <div class="panel">
+      <h2>Room setup</h2>
+      <div class="choice-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+        <div class="card">
+          <div class="name">Chaser character</div>
+          <label for="room-char" class="speed">Pick character</label><br />
+          <select id="room-char" style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:var(--text); width:100%;">
+            <option value="snail">🐌 Snail</option>
+            <option value="frog">🐸 Frog</option>
+            <option value="tiger">🐯 Tiger</option>
+            <option value="ninja">🥷🏻 Ninja</option>
+          </select>
+        </div>
+        <div class="card">
+          <div class="name">Chaser speed</div>
+          <label for="room-speed" class="speed">Speed (km/h)</label><br />
+          <input id="room-speed" type="number" min="0" max="10000" step="1" value="2" style="width: 130px;" />
+        </div>
+        <div class="card">
+          <div class="name">Spawn</div>
+          <label for="room-radius" class="speed">Max radius (m)</label><br />
+          <input id="room-radius" type="number" min="100" max="50000" step="100" value="5000" style="width: 130px;" />
+          <div style="margin-top:8px;">
+            <label><input id="room-random" type="checkbox" /> Randomize within radius</label>
+          </div>
+        </div>
+      </div>
+      <div class="start-row">
+        <p class="status">Confirm to create or update room settings.</p>
+        <div style="display:flex; gap:10px;">
+          <button id="room-settings-cancel" class="btn" type="button">Cancel</button>
+          <button id="room-settings-apply" class="start-btn" type="button">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="message" aria-live="polite">Enable location services to see your position.</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -289,6 +327,13 @@
     const loseOverlay = document.getElementById("lose-overlay");
     const resetGameBtn = document.getElementById("reset-game");
     const settingsOverlay = document.getElementById("settings-overlay");
+    const roomSettingsOverlay = document.getElementById("room-settings-overlay");
+    const roomSettingsApply = document.getElementById("room-settings-apply");
+    const roomSettingsCancel = document.getElementById("room-settings-cancel");
+    const roomCharSelect = document.getElementById("room-char");
+    const roomSpeedInput = document.getElementById("room-speed");
+    const roomRadiusInput = document.getElementById("room-radius");
+    const roomRandomToggle = document.getElementById("room-random");
     const godToggle = document.getElementById("god-toggle");
     const godSpeedInput = document.getElementById("god-speed");
     const spawnRadiusInput = document.getElementById("spawn-radius");
@@ -304,6 +349,7 @@
     const joinCodeInput = document.getElementById("join-code");
     const joinRoomBtn = document.getElementById("join-room");
     const roomPill = document.getElementById("room-pill");
+    const leaveRoomBtn = document.getElementById("leave-room");
     const characterGrid = document.getElementById("character-grid");
     const startBtn = document.getElementById("start-btn");
     const selectedLabel = document.getElementById("selected-label");
@@ -371,6 +417,7 @@
       roomPill.textContent = roomCode ? `Room: ${roomCode}` : "Room: ----";
       restartBtn.disabled = roomLocked;
       openSelectionBtn.disabled = roomLocked;
+      leaveRoomBtn.style.display = gameMode === "room" ? "inline-block" : "none";
     }
 
     function generateRoomCode() {
@@ -647,10 +694,11 @@
       });
 
       generateRoomBtn.addEventListener("click", () => {
-        roomCode = generateRoomCode();
-        roomCodeDisplay.textContent = roomCode;
-        setRoomStatus();
-        updateMessage(`Room created. Share code: ${roomCode}`);
+        roomCharSelect.value = selectedCharId;
+        roomSpeedInput.value = speedKmh;
+        roomRadiusInput.value = config.spawnRadius;
+        roomRandomToggle.checked = config.randomSpawn;
+        roomSettingsOverlay.classList.remove("hidden");
       });
 
       joinRoomBtn.addEventListener("click", () => {
@@ -664,6 +712,51 @@
         roomCodeDisplay.textContent = roomCode;
         setRoomStatus();
         updateMessage(`Joined room ${roomCode}. Share this code with others.`);
+      });
+
+      roomSettingsCancel.addEventListener("click", () => {
+        roomSettingsOverlay.classList.add("hidden");
+      });
+
+      roomSettingsApply.addEventListener("click", () => {
+        const chosenId = roomCharSelect.value;
+        setCharacter(chosenId);
+        config.godMode = false;
+        config.godSpeed = Math.min(10000, Math.max(0, parseFloat(roomSpeedInput.value) || 0));
+        config.spawnRadius = Math.min(50000, Math.max(100, parseFloat(roomRadiusInput.value) || 0));
+        config.randomSpawn = roomRandomToggle.checked;
+        godToggle.checked = false;
+        godSpeedInput.value = config.godSpeed;
+        spawnRadiusInput.value = config.spawnRadius;
+        randomSpawnToggle.checked = config.randomSpawn;
+        roomCode = generateRoomCode();
+        roomCodeDisplay.textContent = roomCode;
+        gameMode = "room";
+        roomLocked = false;
+        setRoomStatus();
+        updateMessage(`Room created. Share code: ${roomCode}`);
+        roomSettingsOverlay.classList.add("hidden");
+      });
+
+      leaveRoomBtn.addEventListener("click", () => {
+        gameMode = "solo";
+        roomLocked = false;
+        roomCode = "";
+        roomCodeDisplay.textContent = "----";
+        setRoomStatus();
+        gameStarted = false;
+        forceRespawn = false;
+        chaseStartedAt = null;
+        lastStepAt = null;
+        distanceTraveled = 0;
+        if (snailMarker) {
+          map.removeLayer(snailMarker);
+          snailMarker = null;
+        }
+        snailCoords = null;
+        overlay.classList.remove("hidden");
+        loseOverlay.classList.add("hidden");
+        updateMessage("Left room. Solo mode.");
       });
 
       resetGameBtn.addEventListener("click", () => {
