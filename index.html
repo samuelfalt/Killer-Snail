@@ -376,6 +376,7 @@
     let gameMode = "solo"; // "solo" | "room"
     let roomCode = "";
     let roomLocked = false;
+    let playerNickname = "You";
 
     const map = L.map("map", { zoomControl: true, worldCopyJump: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -418,6 +419,12 @@
       restartBtn.disabled = roomLocked;
       openSelectionBtn.disabled = roomLocked;
       leaveRoomBtn.style.display = gameMode === "room" ? "inline-block" : "none";
+      if (gameMode === "room") {
+        godToggle.checked = false;
+        godToggle.disabled = true;
+      } else {
+        godToggle.disabled = false;
+      }
     }
 
     function generateRoomCode() {
@@ -436,6 +443,45 @@
       const mins = Math.floor(totalSeconds / 60);
       const secs = totalSeconds % 60;
       return `${mins}:${secs.toString().padStart(2, "0")}`;
+    }
+
+    function updatePlayerLabel(marker) {
+      if (!marker) return;
+      marker.bindPopup(playerNickname || "You");
+      marker.unbindTooltip();
+      marker.bindTooltip(playerNickname || "You", { permanent: true, direction: "top", offset: [0, -10] });
+    }
+
+    function startChase() {
+      loseOverlay.classList.add("hidden");
+      if (gameMode === "room" && roomLocked) {
+        alert("This room can’t be restarted. Create or join a new room.");
+        return;
+      }
+      if (gameMode === "room" && !roomCode) {
+        alert("Create or join a room first to get a code.");
+        return;
+      }
+      gameStarted = true;
+      if (forceRespawn || !snailCoords || !snailMarker) {
+        if (snailMarker) {
+          map.removeLayer(snailMarker);
+          snailMarker = null;
+        }
+        snailCoords = null;
+        placeSnailRandom();
+      } else if (snailMarker) {
+        snailMarker.setIcon(makeEmojiIcon(selectedEmoji));
+      }
+      overlay.classList.add("hidden");
+      forceRespawn = false;
+      chaseStartedAt = Date.now();
+      lastStepAt = Date.now();
+      distanceTraveled = 0;
+      if (gameMode === "room") {
+        roomLocked = true;
+        setRoomStatus();
+      }
     }
 
     function setCharacter(id) {
@@ -535,10 +581,12 @@
       if (!userMarker) {
         userMarker = L.marker(userCoords, { icon: makePlayerIcon() })
           .addTo(map)
-          .bindPopup("You are here")
+          .bindPopup(playerNickname || "You")
           .openPopup();
+        userMarker.bindTooltip(playerNickname || "You", { permanent: true, direction: "top", offset: [0, -10] });
       } else {
         userMarker.setLatLng(userCoords).setIcon(makePlayerIcon());
+        updatePlayerLabel(userMarker);
       }
 
       if (accuracy) {
@@ -707,25 +755,50 @@
           alert("Enter a room code to join.");
           return;
         }
+        const nick = prompt("Enter your nickname for this room:", playerNickname);
+        if (nick !== null && nick.trim() !== "") {
+          playerNickname = nick.trim().slice(0, 24);
+          updatePlayerLabel(userMarker);
+        }
         gameMode = "room";
         roomCode = code.slice(0, 8);
         roomCodeDisplay.textContent = roomCode;
         setRoomStatus();
         updateMessage(`Joined room ${roomCode}. Share this code with others.`);
+        config.godMode = false;
+        godToggle.checked = false;
+        godToggle.disabled = true;
       });
 
       roomSettingsCancel.addEventListener("click", () => {
         roomSettingsOverlay.classList.add("hidden");
       });
 
+      roomCharSelect.addEventListener("change", () => {
+        const cid = roomCharSelect.value;
+        const fixed = characters.find(c => c.id === cid);
+        if (cid === "ninja") {
+          roomSpeedInput.disabled = false;
+        } else {
+          roomSpeedInput.disabled = true;
+          roomSpeedInput.value = fixed ? fixed.speed : 2;
+        }
+      });
+
       roomSettingsApply.addEventListener("click", () => {
         const chosenId = roomCharSelect.value;
+        const chosenChar = characters.find(c => c.id === chosenId) || characters[0];
         setCharacter(chosenId);
         config.godMode = false;
-        config.godSpeed = Math.min(10000, Math.max(0, parseFloat(roomSpeedInput.value) || 0));
+        let chosenSpeed = chosenChar.speed;
+        if (chosenId === "ninja") {
+          chosenSpeed = Math.min(10000, Math.max(chosenChar.min, parseFloat(roomSpeedInput.value) || chosenChar.speed));
+        }
+        config.godSpeed = chosenSpeed;
         config.spawnRadius = Math.min(50000, Math.max(100, parseFloat(roomRadiusInput.value) || 0));
         config.randomSpawn = roomRandomToggle.checked;
         godToggle.checked = false;
+        godToggle.disabled = true;
         godSpeedInput.value = config.godSpeed;
         spawnRadiusInput.value = config.spawnRadius;
         randomSpawnToggle.checked = config.randomSpawn;
@@ -736,6 +809,11 @@
         setRoomStatus();
         updateMessage(`Room created. Share code: ${roomCode}`);
         roomSettingsOverlay.classList.add("hidden");
+        speedKmh = config.godSpeed;
+        speedInput.value = speedKmh;
+        speedValue.textContent = speedKmh.toFixed(1);
+        forceRespawn = true;
+        startChase();
       });
 
       leaveRoomBtn.addEventListener("click", () => {
@@ -744,6 +822,7 @@
         roomCode = "";
         roomCodeDisplay.textContent = "----";
         setRoomStatus();
+        playerNickname = "You";
         gameStarted = false;
         forceRespawn = false;
         chaseStartedAt = null;
@@ -757,6 +836,7 @@
         overlay.classList.remove("hidden");
         loseOverlay.classList.add("hidden");
         updateMessage("Left room. Solo mode.");
+        godToggle.disabled = false;
       });
 
       resetGameBtn.addEventListener("click", () => {
@@ -776,37 +856,7 @@
         distanceTraveled = 0;
       });
 
-      startBtn.addEventListener("click", () => {
-        loseOverlay.classList.add("hidden");
-        if (gameMode === "room" && roomLocked) {
-          alert("This room can’t be restarted. Create or join a new room.");
-          return;
-        }
-        if (gameMode === "room" && !roomCode) {
-          alert("Create or join a room first to get a code.");
-          return;
-        }
-        gameStarted = true;
-        if (forceRespawn || !snailCoords || !snailMarker) {
-          if (snailMarker) {
-            map.removeLayer(snailMarker);
-            snailMarker = null;
-          }
-          snailCoords = null;
-          placeSnailRandom();
-        } else if (snailMarker) {
-          snailMarker.setIcon(makeEmojiIcon(selectedEmoji));
-        }
-        overlay.classList.add("hidden");
-        forceRespawn = false;
-        chaseStartedAt = Date.now();
-        lastStepAt = Date.now();
-        distanceTraveled = 0;
-        if (gameMode === "room") {
-          roomLocked = true;
-          setRoomStatus();
-        }
-      });
+      startBtn.addEventListener("click", startChase);
 
       buildCharacterGrid();
 
