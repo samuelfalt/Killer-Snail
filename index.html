@@ -429,6 +429,9 @@
         soloSection.style.display = "none";
         roomSection.style.display = "none";
         roomPill.style.display = "none";
+        restartBtn.style.display = "inline-block";
+        openSelectionBtn.style.display = "inline-block";
+        openSettingsBtn.style.display = "inline-block";
         restartBtn.disabled = false;
         openSelectionBtn.disabled = false;
         leaveRoomBtn.style.display = "none";
@@ -441,6 +444,15 @@
       roomSection.style.display = gameMode === "room" ? "block" : "none";
       roomPill.style.display = gameMode === "room" && roomCode ? "inline-block" : "none";
       roomPill.textContent = roomCode ? `Room: ${roomCode}` : "Room: ----";
+      if (gameMode === "room") {
+        restartBtn.style.display = "none";
+        openSelectionBtn.style.display = "none";
+        openSettingsBtn.style.display = "none";
+      } else {
+        restartBtn.style.display = "inline-block";
+        openSelectionBtn.style.display = "inline-block";
+        openSettingsBtn.style.display = "inline-block";
+      }
       restartBtn.disabled = roomLocked;
       openSelectionBtn.disabled = roomLocked;
       leaveRoomBtn.style.display = gameMode === "room" ? "inline-block" : "none";
