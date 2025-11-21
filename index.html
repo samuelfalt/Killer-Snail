@@ -206,7 +206,7 @@
   <div class="overlay" id="start-overlay">
     <div class="panel">
       <h2>Select mode</h2>
-      <div class="start-row">
+      <div class="start-row" id="mode-row">
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button id="mode-solo" class="btn" type="button">Solo</button>
           <button id="mode-room" class="btn" type="button">Multiplayer</button>
@@ -352,6 +352,7 @@
     const modeSoloBtn = document.getElementById("mode-solo");
     const modeRoomBtn = document.getElementById("mode-room");
     const roomStatus = document.getElementById("room-status");
+    const modeRow = document.getElementById("mode-row");
     const soloSection = document.getElementById("solo-section");
     const roomSection = document.getElementById("room-section");
     const generateRoomBtn = document.getElementById("generate-room");
@@ -424,6 +425,7 @@
     function setRoomStatus() {
       if (!gameMode) {
         roomStatus.textContent = "Choose a mode";
+        modeRow.style.display = "flex";
         soloSection.style.display = "none";
         roomSection.style.display = "none";
         roomPill.style.display = "none";
@@ -433,6 +435,7 @@
         godToggle.disabled = false;
         return;
       }
+      modeRow.style.display = "none";
       roomStatus.textContent = gameMode === "solo" ? "Solo mode" : `Room mode${roomLocked ? " (locked)" : ""}`;
       soloSection.style.display = gameMode === "solo" ? "block" : "none";
       roomSection.style.display = gameMode === "room" ? "block" : "none";
