@@ -196,11 +196,36 @@
       <button id="open-selection" class="btn" type="button">Change character</button>
       <button id="open-settings" class="btn" type="button">Settings</button>
     </div>
-    <div class="pill" id="pill">Idle</div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <div class="pill" id="pill">Idle</div>
+      <div class="pill" id="room-pill" style="display:none;">No room</div>
+    </div>
   </header>
   <div id="map" role="region" aria-label="Map showing your location"></div>
   <div class="overlay" id="start-overlay">
     <div class="panel">
+      <h2>Mode</h2>
+      <div class="start-row">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button id="mode-solo" class="btn" type="button">Solo chase</button>
+          <button id="mode-room" class="btn" type="button">Multiplayer room (max 10)</button>
+        </div>
+        <p class="status" id="room-status">Solo mode</p>
+      </div>
+      <div class="card" id="room-card" style="display:none;">
+        <div class="name">Room controls</div>
+        <div class="speed" style="margin-bottom:6px;">Create a room once, then share the code. Rooms cannot be restarted.</div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+          <button id="generate-room" class="btn" type="button">Create room</button>
+          <span class="status">Code:</span>
+          <span id="room-code-display" class="pill" style="background:rgba(34,197,94,0.2); border-color:rgba(34,197,94,0.5);">----</span>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <label class="status" for="join-code">Join with code</label>
+          <input id="join-code" type="text" placeholder="Enter code" maxlength="8" style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:var(--text);" />
+          <button id="join-room" class="btn" type="button">Join room</button>
+        </div>
+      </div>
       <h2>Pick your chaser</h2>
       <div class="choice-grid" id="character-grid"></div>
       <div class="start-row">
@@ -270,6 +295,15 @@
     const randomSpawnToggle = document.getElementById("random-spawn");
     const settingsApply = document.getElementById("settings-apply");
     const settingsCancel = document.getElementById("settings-cancel");
+    const modeSoloBtn = document.getElementById("mode-solo");
+    const modeRoomBtn = document.getElementById("mode-room");
+    const roomStatus = document.getElementById("room-status");
+    const roomCard = document.getElementById("room-card");
+    const generateRoomBtn = document.getElementById("generate-room");
+    const roomCodeDisplay = document.getElementById("room-code-display");
+    const joinCodeInput = document.getElementById("join-code");
+    const joinRoomBtn = document.getElementById("join-room");
+    const roomPill = document.getElementById("room-pill");
     const characterGrid = document.getElementById("character-grid");
     const startBtn = document.getElementById("start-btn");
     const selectedLabel = document.getElementById("selected-label");
@@ -293,6 +327,9 @@
     let chaseStartedAt = null;
     let lastStepAt = null;
     let distanceTraveled = 0;
+    let gameMode = "solo"; // "solo" | "room"
+    let roomCode = "";
+    let roomLocked = false;
 
     const map = L.map("map", { zoomControl: true, worldCopyJump: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -325,6 +362,24 @@
 
     function updateMessage(text) {
       messageEl.textContent = text;
+    }
+
+    function setRoomStatus() {
+      roomStatus.textContent = gameMode === "solo" ? "Solo mode" : `Room mode${roomLocked ? " (locked)" : ""}`;
+      roomCard.style.display = gameMode === "room" ? "block" : "none";
+      roomPill.style.display = gameMode === "room" && roomCode ? "inline-block" : "none";
+      roomPill.textContent = roomCode ? `Room: ${roomCode}` : "Room: ----";
+      restartBtn.disabled = roomLocked;
+      openSelectionBtn.disabled = roomLocked;
+    }
+
+    function generateRoomCode() {
+      const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      let code = "";
+      for (let i = 0; i < 6; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return code;
     }
 
     function formatElapsed() {
@@ -527,6 +582,10 @@
       });
 
       restartBtn.addEventListener("click", () => {
+        if (roomLocked) {
+          alert("Room run is locked. Create or join a new room to play again.");
+          return;
+        }
         const ok = window.confirm("Reset the chaser to a new random spot?");
         if (ok) {
           placeSnailRandom();
@@ -534,6 +593,10 @@
       });
 
       openSelectionBtn.addEventListener("click", () => {
+        if (roomLocked) {
+          alert("Room run is locked. Create or join a new room to play again.");
+          return;
+        }
         gameStarted = false;
         loseOverlay.classList.add("hidden");
         overlay.classList.remove("hidden");
@@ -571,6 +634,38 @@
         }
       });
 
+      modeSoloBtn.addEventListener("click", () => {
+        gameMode = "solo";
+        roomLocked = false;
+        roomCode = "";
+        setRoomStatus();
+      });
+
+      modeRoomBtn.addEventListener("click", () => {
+        gameMode = "room";
+        setRoomStatus();
+      });
+
+      generateRoomBtn.addEventListener("click", () => {
+        roomCode = generateRoomCode();
+        roomCodeDisplay.textContent = roomCode;
+        setRoomStatus();
+        updateMessage(`Room created. Share code: ${roomCode}`);
+      });
+
+      joinRoomBtn.addEventListener("click", () => {
+        const code = joinCodeInput.value.trim().toUpperCase();
+        if (!code) {
+          alert("Enter a room code to join.");
+          return;
+        }
+        gameMode = "room";
+        roomCode = code.slice(0, 8);
+        roomCodeDisplay.textContent = roomCode;
+        setRoomStatus();
+        updateMessage(`Joined room ${roomCode}. Share this code with others.`);
+      });
+
       resetGameBtn.addEventListener("click", () => {
         gameStarted = false;
         loseOverlay.classList.add("hidden");
@@ -590,6 +685,14 @@
 
       startBtn.addEventListener("click", () => {
         loseOverlay.classList.add("hidden");
+        if (gameMode === "room" && roomLocked) {
+          alert("This room can’t be restarted. Create or join a new room.");
+          return;
+        }
+        if (gameMode === "room" && !roomCode) {
+          alert("Create or join a room first to get a code.");
+          return;
+        }
         gameStarted = true;
         if (forceRespawn || !snailCoords || !snailMarker) {
           if (snailMarker) {
@@ -606,6 +709,10 @@
         chaseStartedAt = Date.now();
         lastStepAt = Date.now();
         distanceTraveled = 0;
+        if (gameMode === "room") {
+          roomLocked = true;
+          setRoomStatus();
+        }
       });
 
       buildCharacterGrid();
