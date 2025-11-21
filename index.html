@@ -460,14 +460,10 @@
       map.fitBounds(L.latLngBounds([userCoords, snailCoords]), { padding: [40, 40] });
     }
 
-    function tick() {
+    function stepChase() {
+      if (!gameStarted) return;
+      if (!userCoords || !snailCoords || !snailMarker) return;
       const tickMs = 1000;
-      if (!gameStarted) {
-        return setTimeout(tick, tickMs);
-      }
-      if (!userCoords || !snailCoords || !snailMarker) {
-        return setTimeout(tick, tickMs);
-      }
       const next = moveTowards(snailCoords, userCoords, currentSpeedMps() * (tickMs / 1000));
       snailCoords = next;
       snailMarker.setLatLng(next);
@@ -478,9 +474,7 @@
         `You: ${userCoords[0].toFixed(5)} · ${userCoords[1].toFixed(5)} | ` +
         `Chaser: ${snailCoords[0].toFixed(5)} · ${snailCoords[1].toFixed(5)} · Dist: ${dist.toFixed(1)}m · Speed: ${speedKmh.toFixed(1)} km/h`
       );
-      if (status === "Live") {
-        setTimeout(tick, tickMs);
-      } else {
+      if (status !== "Live") {
         snailMarker.bindPopup("Chaser (arrived)").openPopup();
         userMarker?.openPopup();
         gameStarted = false;
@@ -573,7 +567,7 @@
         onLocationError,
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
       );
-      tick();
+      setInterval(stepChase, 1000);
     }
 
     init();
