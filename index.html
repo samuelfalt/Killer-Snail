@@ -504,7 +504,7 @@
       });
 
       restartBtn.addEventListener("click", () => {
-        const ok = window.confirm("Reset the chaser to a new random spot ~5 km away?");
+        const ok = window.confirm("Reset the chaser to a new random spot?");
         if (ok) {
           placeSnailRandom();
         }
@@ -557,6 +557,10 @@
       startBtn.addEventListener("click", () => {
         loseOverlay.classList.add("hidden");
         gameStarted = true;
+        if (snailMarker) {
+          map.removeLayer(snailMarker);
+          snailMarker = null;
+        }
         snailCoords = null;
         placeSnailRandom();
         overlay.classList.add("hidden");
