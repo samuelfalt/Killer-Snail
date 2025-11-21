@@ -889,7 +889,7 @@
         const cid = card.dataset.id;
         setCharacter(cid);
         forceRespawn = true;
-        startChase();
+        updateMessage("Chaser selected. Press Start to begin.");
       });
 
       buildCharacterGrid();
