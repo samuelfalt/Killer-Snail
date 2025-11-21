@@ -193,7 +193,7 @@
       <input id="speed" type="range" min="0" max="10" step="0.5" value="2" aria-label="Chaser speed in km per hour" />
       <span id="speed-value">2.0</span><span>km/h</span>
       <button id="restart-snail" class="btn" type="button">Reset</button>
-      <button id="open-selection" class="btn" type="button">Change character</button>
+      <button id="open-selection" class="btn" type="button">Menu</button>
       <button id="open-settings" class="btn" type="button">Settings</button>
       <button id="leave-room" class="btn" type="button" style="display:none;">Leave room</button>
     </div>
@@ -205,33 +205,34 @@
   <div id="map" role="region" aria-label="Map showing your location"></div>
   <div class="overlay" id="start-overlay">
     <div class="panel">
-      <h2>Mode</h2>
+      <h2>Select mode</h2>
       <div class="start-row">
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button id="mode-solo" class="btn" type="button">Solo chase</button>
-          <button id="mode-room" class="btn" type="button">Multiplayer room (max 10)</button>
+          <button id="mode-solo" class="btn" type="button">Solo</button>
+          <button id="mode-room" class="btn" type="button">Multiplayer</button>
         </div>
-        <p class="status" id="room-status">Solo mode</p>
+        <p class="status" id="room-status">Choose a mode</p>
       </div>
-      <div class="card" id="room-card" style="display:none;">
-        <div class="name">Room controls</div>
-        <div class="speed" style="margin-bottom:6px;">Create a room once, then share the code. Rooms cannot be restarted.</div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-          <button id="generate-room" class="btn" type="button">Create room</button>
-          <span class="status">Code:</span>
-          <span id="room-code-display" class="pill" style="background:rgba(34,197,94,0.2); border-color:rgba(34,197,94,0.5);">----</span>
-        </div>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-          <label class="status" for="join-code">Join with code</label>
-          <input id="join-code" type="text" placeholder="Enter code" maxlength="8" style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:var(--text);" />
-          <button id="join-room" class="btn" type="button">Join room</button>
-        </div>
-      </div>
-      <h2>Pick your chaser</h2>
-      <div class="choice-grid" id="character-grid"></div>
-      <div class="start-row">
+      <div id="solo-section" style="display:none;">
+        <h3>Choose your chaser</h3>
+        <div class="choice-grid" id="character-grid"></div>
         <p class="status" id="selected-label">Selected: Snail · 0.048 km/h</p>
-        <button id="start-btn" class="start-btn" type="button">Start chase</button>
+      </div>
+      <div id="room-section" style="display:none;">
+        <div class="card">
+          <div class="name">Multiplayer</div>
+          <div class="speed" style="margin-bottom:6px;">Create a room once (max 10 players) or join with a code.</div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+            <button id="generate-room" class="btn" type="button">Create room</button>
+            <span class="status">Code:</span>
+            <span id="room-code-display" class="pill" style="background:rgba(34,197,94,0.2); border-color:rgba(34,197,94,0.5);">----</span>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <label class="status" for="join-code">Join with code</label>
+            <input id="join-code" type="text" placeholder="Enter code" maxlength="8" style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:var(--text);" />
+            <button id="join-room" class="btn" type="button">Join room</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -348,7 +349,8 @@
     const modeSoloBtn = document.getElementById("mode-solo");
     const modeRoomBtn = document.getElementById("mode-room");
     const roomStatus = document.getElementById("room-status");
-    const roomCard = document.getElementById("room-card");
+    const soloSection = document.getElementById("solo-section");
+    const roomSection = document.getElementById("room-section");
     const generateRoomBtn = document.getElementById("generate-room");
     const roomCodeDisplay = document.getElementById("room-code-display");
     const joinCodeInput = document.getElementById("join-code");
@@ -418,7 +420,8 @@
 
     function setRoomStatus() {
       roomStatus.textContent = gameMode === "solo" ? "Solo mode" : `Room mode${roomLocked ? " (locked)" : ""}`;
-      roomCard.style.display = gameMode === "room" ? "block" : "none";
+      soloSection.style.display = gameMode === "solo" ? "block" : "none";
+      roomSection.style.display = gameMode === "room" ? "block" : "none";
       roomPill.style.display = gameMode === "room" && roomCode ? "inline-block" : "none";
       roomPill.textContent = roomCode ? `Room: ${roomCode}` : "Room: ----";
       restartBtn.disabled = roomLocked;
@@ -748,12 +751,14 @@
         setRoomStatus();
         setCharacter(selectedCharId);
         forceRespawn = true;
-        updateMessage("Solo mode selected. Pick a chaser and start.");
+        updateMessage("Solo mode selected. Pick a chaser to start.");
       });
 
       modeRoomBtn.addEventListener("click", () => {
         gameMode = "room";
+        roomLocked = false;
         setRoomStatus();
+        updateMessage("Multiplayer selected. Create or join a room.");
       });
 
       generateRoomBtn.addEventListener("click", () => {
@@ -874,6 +879,15 @@
       });
 
       startBtn.addEventListener("click", startChase);
+
+      characterGrid.addEventListener("click", (e) => {
+        const card = e.target.closest(".card");
+        if (!card || gameMode !== "solo") return;
+        const cid = card.dataset.id;
+        setCharacter(cid);
+        forceRespawn = true;
+        startChase();
+      });
 
       buildCharacterGrid();
 
