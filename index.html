@@ -212,7 +212,7 @@
   <div class="overlay full hidden" id="lose-overlay">
     <div class="panel">
       <h2>Game over</h2>
-      <p class="status">The chaser caught you.</p>
+      <p class="status" id="lose-details">The chaser caught you.</p>
       <div class="start-row">
         <button id="reset-game" class="start-btn" type="button">Reset game</button>
       </div>
@@ -291,6 +291,8 @@
     };
     let forceRespawn = false;
     let chaseStartedAt = null;
+    let lastStepAt = null;
+    let distanceTraveled = 0;
 
     const map = L.map("map", { zoomControl: true, worldCopyJump: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -472,10 +474,21 @@
     }
 
     function stepChase() {
-      if (!gameStarted) return;
-      if (!userCoords || !snailCoords || !snailMarker) return;
-      const tickMs = 1000;
-      const next = moveTowards(snailCoords, userCoords, currentSpeedMps() * (tickMs / 1000));
+      if (!gameStarted) {
+        lastStepAt = null;
+        return;
+      }
+      if (!userCoords || !snailCoords || !snailMarker) {
+        lastStepAt = Date.now();
+        return;
+      }
+      const now = Date.now();
+      if (!lastStepAt) lastStepAt = now;
+      const dtSeconds = Math.min(10, (now - lastStepAt) / 1000); // cap catch-up
+      lastStepAt = now;
+      const next = moveTowards(snailCoords, userCoords, currentSpeedMps() * dtSeconds);
+      const stepDist = distanceMeters(snailCoords, next);
+      distanceTraveled += stepDist;
       snailCoords = next;
       snailMarker.setLatLng(next);
       const dist = distanceMeters(next, userCoords);
@@ -490,6 +503,11 @@
         gameStarted = false;
         loseOverlay.classList.remove("hidden");
         forceRespawn = true;
+        lastStepAt = null;
+        const elapsed = formatElapsed();
+        const traveledKm = (distanceTraveled / 1000).toFixed(3);
+        document.getElementById("lose-details").textContent =
+          `The chaser caught you. Time: ${elapsed} · Distance traveled: ${traveledKm} km`;
       }
     }
 
@@ -523,6 +541,8 @@
         updateMessage("Pick a character to start chasing.");
         forceRespawn = false;
         chaseStartedAt = null;
+        lastStepAt = null;
+        distanceTraveled = 0;
       });
 
       openSettingsBtn.addEventListener("click", () => {
@@ -564,6 +584,8 @@
         setStatus("Selection", "Idle");
         forceRespawn = true;
         chaseStartedAt = null;
+        lastStepAt = null;
+        distanceTraveled = 0;
       });
 
       startBtn.addEventListener("click", () => {
@@ -582,6 +604,8 @@
         overlay.classList.add("hidden");
         forceRespawn = false;
         chaseStartedAt = Date.now();
+        lastStepAt = Date.now();
+        distanceTraveled = 0;
       });
 
       buildCharacterGrid();
