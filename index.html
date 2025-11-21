@@ -106,6 +106,10 @@
       padding: 24px;
     }
     .overlay.hidden { display: none; }
+    .overlay.full {
+      inset: 0;
+      padding-top: 80px;
+    }
     .panel {
       width: min(900px, 96vw);
       background: rgba(15, 34, 56, 0.9);
@@ -188,6 +192,8 @@
       <label for="speed">Chaser speed</label>
       <input id="speed" type="range" min="0" max="10" step="0.5" value="2" aria-label="Chaser speed in km per hour" />
       <span id="speed-value">2.0</span><span>km/h</span>
+      <label><input id="god-toggle" type="checkbox" /> God mode</label>
+      <input id="god-speed" type="number" min="0" max="10000" step="10" value="100" aria-label="God mode speed in km per hour" style="width:110px;" disabled />
       <button id="restart-snail" class="btn" type="button">Reset</button>
       <button id="open-selection" class="btn" type="button">Change character</button>
     </div>
@@ -204,6 +210,15 @@
       </div>
     </div>
   </div>
+  <div class="overlay full hidden" id="lose-overlay">
+    <div class="panel">
+      <h2>Game over</h2>
+      <p class="status">The chaser caught you.</p>
+      <div class="start-row">
+        <button id="reset-game" class="start-btn" type="button">Reset game</button>
+      </div>
+    </div>
+  </div>
   <div id="message" aria-live="polite">Enable location services to see your position.</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -213,9 +228,13 @@
     const messageEl = document.getElementById("message");
     const speedInput = document.getElementById("speed");
     const speedValue = document.getElementById("speed-value");
+    const godToggle = document.getElementById("god-toggle");
+    const godSpeedInput = document.getElementById("god-speed");
     const restartBtn = document.getElementById("restart-snail");
     const openSelectionBtn = document.getElementById("open-selection");
     const overlay = document.getElementById("start-overlay");
+    const loseOverlay = document.getElementById("lose-overlay");
+    const resetGameBtn = document.getElementById("reset-game");
     const characterGrid = document.getElementById("character-grid");
     const startBtn = document.getElementById("start-btn");
     const selectedLabel = document.getElementById("selected-label");
@@ -264,12 +283,12 @@
       const choice = characters.find(c => c.id === id) || characters[0];
       selectedCharId = choice.id;
       selectedEmoji = choice.emoji;
-      speedKmh = choice.speed;
+      speedKmh = godToggle.checked ? parseFloat(godSpeedInput.value) : choice.speed;
       speedInput.min = choice.min;
       speedInput.max = choice.max;
       speedInput.value = choice.speed;
-      speedInput.disabled = !choice.adjustable;
-      speedValue.textContent = choice.adjustable ? speedKmh.toFixed(1) : speedKmh.toString();
+      speedInput.disabled = !choice.adjustable || godToggle.checked;
+      speedValue.textContent = (godToggle.checked ? speedKmh : choice.adjustable ? speedKmh.toFixed(1) : speedKmh.toString());
       selectedLabel.textContent = `Selected: ${choice.name} · ${choice.adjustable ? `${choice.min}–${choice.max} km/h` : `${choice.speed} km/h`}`;
       document.querySelectorAll(".card").forEach(card => {
         card.classList.toggle("active", card.dataset.id === id);
@@ -417,6 +436,8 @@
       } else {
         snailMarker.bindPopup("Chaser (arrived)").openPopup();
         userMarker?.openPopup();
+        gameStarted = false;
+        loseOverlay.classList.remove("hidden");
       }
     }
 
@@ -430,7 +451,29 @@
       setStatus("Requesting location…", "Pending");
 
       speedInput.addEventListener("input", () => {
+        if (godToggle.checked) return;
         speedKmh = parseFloat(speedInput.value);
+        speedValue.textContent = speedKmh.toFixed(1);
+      });
+
+      godToggle.addEventListener("change", () => {
+        const enabled = godToggle.checked;
+        speedInput.disabled = enabled || !characters.find(c => c.id === selectedCharId)?.adjustable;
+        godSpeedInput.disabled = !enabled;
+        if (enabled) {
+          speedKmh = parseFloat(godSpeedInput.value);
+        } else {
+          const c = characters.find(ch => ch.id === selectedCharId);
+          speedKmh = c.adjustable ? parseFloat(speedInput.value) : c.speed;
+        }
+        speedValue.textContent = speedKmh.toFixed(1);
+      });
+
+      godSpeedInput.addEventListener("input", () => {
+        if (!godToggle.checked) return;
+        const val = Math.min(10000, Math.max(0, parseFloat(godSpeedInput.value) || 0));
+        godSpeedInput.value = val;
+        speedKmh = val;
         speedValue.textContent = speedKmh.toFixed(1);
       });
 
@@ -443,12 +486,27 @@
 
       openSelectionBtn.addEventListener("click", () => {
         gameStarted = false;
+        loseOverlay.classList.add("hidden");
         overlay.classList.remove("hidden");
         setStatus("Selection", "Idle");
         updateMessage("Pick a character to start chasing.");
       });
 
+      resetGameBtn.addEventListener("click", () => {
+        gameStarted = false;
+        loseOverlay.classList.add("hidden");
+        overlay.classList.remove("hidden");
+        if (snailMarker) {
+          map.removeLayer(snailMarker);
+          snailMarker = null;
+        }
+        snailCoords = null;
+        updateMessage("Pick a character to start chasing.");
+        setStatus("Selection", "Idle");
+      });
+
       startBtn.addEventListener("click", () => {
+        loseOverlay.classList.add("hidden");
         gameStarted = true;
         if (!snailCoords) {
           placeSnailRandom();
