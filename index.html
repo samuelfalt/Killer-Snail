@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chaser Map</title>
@@ -192,10 +192,9 @@
       <label for="speed">Chaser speed</label>
       <input id="speed" type="range" min="0" max="10" step="0.5" value="2" aria-label="Chaser speed in km per hour" />
       <span id="speed-value">2.0</span><span>km/h</span>
-      <label><input id="god-toggle" type="checkbox" /> God mode</label>
-      <input id="god-speed" type="number" min="0" max="10000" step="10" value="100" aria-label="God mode speed in km per hour" style="width:110px;" disabled />
       <button id="restart-snail" class="btn" type="button">Reset</button>
       <button id="open-selection" class="btn" type="button">Change character</button>
+      <button id="open-settings" class="btn" type="button">Settings</button>
     </div>
     <div class="pill" id="pill">Idle</div>
   </header>
@@ -219,6 +218,36 @@
       </div>
     </div>
   </div>
+  <div class="overlay hidden" id="settings-overlay">
+    <div class="panel">
+      <h2>Settings</h2>
+      <div class="choice-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+        <div class="card">
+          <div class="name">God mode</div>
+          <label><input id="god-toggle" type="checkbox" /> Enable god mode</label>
+          <div style="margin-top:8px;">
+            <label for="god-speed" class="speed">God speed (km/h)</label><br />
+            <input id="god-speed" type="number" min="0" max="10000" step="10" value="100" style="width: 120px;" />
+          </div>
+        </div>
+        <div class="card">
+          <div class="name">Spawn radius</div>
+          <label for="spawn-radius" class="speed">Max radius (m)</label><br />
+          <input id="spawn-radius" type="number" min="100" max="50000" step="100" value="5000" style="width: 130px;" />
+          <div style="margin-top:8px;">
+            <label><input id="random-spawn" type="checkbox" /> Randomize within radius</label>
+          </div>
+        </div>
+      </div>
+      <div class="start-row">
+        <p class="status">Apply to use new settings.</p>
+        <div style="display:flex; gap:10px;">
+          <button id="settings-cancel" class="btn" type="button">Cancel</button>
+          <button id="settings-apply" class="start-btn" type="button">Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="message" aria-live="polite">Enable location services to see your position.</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -228,13 +257,19 @@
     const messageEl = document.getElementById("message");
     const speedInput = document.getElementById("speed");
     const speedValue = document.getElementById("speed-value");
-    const godToggle = document.getElementById("god-toggle");
-    const godSpeedInput = document.getElementById("god-speed");
     const restartBtn = document.getElementById("restart-snail");
     const openSelectionBtn = document.getElementById("open-selection");
+    const openSettingsBtn = document.getElementById("open-settings");
     const overlay = document.getElementById("start-overlay");
     const loseOverlay = document.getElementById("lose-overlay");
     const resetGameBtn = document.getElementById("reset-game");
+    const settingsOverlay = document.getElementById("settings-overlay");
+    const godToggle = document.getElementById("god-toggle");
+    const godSpeedInput = document.getElementById("god-speed");
+    const spawnRadiusInput = document.getElementById("spawn-radius");
+    const randomSpawnToggle = document.getElementById("random-spawn");
+    const settingsApply = document.getElementById("settings-apply");
+    const settingsCancel = document.getElementById("settings-cancel");
     const characterGrid = document.getElementById("character-grid");
     const startBtn = document.getElementById("start-btn");
     const selectedLabel = document.getElementById("selected-label");
@@ -248,6 +283,12 @@
     let selectedCharId = "snail";
     let gameStarted = false;
     let selectedEmoji = "🐌";
+    let config = {
+      godMode: false,
+      godSpeed: 100,
+      spawnRadius: 5000,
+      randomSpawn: false,
+    };
 
     const map = L.map("map", { zoomControl: true, worldCopyJump: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -256,12 +297,15 @@
     }).addTo(map);
     map.setView([0, 0], 2);
 
-    const markerIcon = L.icon({
-      iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-      shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-      iconAnchor: [12, 41],
-      popupAnchor: [0, -32]
-    });
+    function makePlayerIcon() {
+      return L.divIcon({
+        className: "snail-icon",
+        html: "🧌",
+        iconSize: [36, 36],
+        iconAnchor: [18, 28],
+        popupAnchor: [0, -26]
+      });
+    }
 
     const characters = [
       { id: "snail", emoji: "🐌", name: "Snail", speed: 0.048, min: 0.048, max: 0.048, adjustable: false },
@@ -283,12 +327,13 @@
       const choice = characters.find(c => c.id === id) || characters[0];
       selectedCharId = choice.id;
       selectedEmoji = choice.emoji;
-      speedKmh = godToggle.checked ? parseFloat(godSpeedInput.value) : choice.speed;
       speedInput.min = choice.min;
       speedInput.max = choice.max;
+      speedInput.step = choice.max > 100 ? 10 : 0.5;
       speedInput.value = choice.speed;
-      speedInput.disabled = !choice.adjustable || godToggle.checked;
-      speedValue.textContent = (godToggle.checked ? speedKmh : choice.adjustable ? speedKmh.toFixed(1) : speedKmh.toString());
+      speedInput.disabled = !choice.adjustable || config.godMode;
+      speedKmh = config.godMode ? config.godSpeed : (choice.adjustable ? parseFloat(speedInput.value) : choice.speed);
+      speedValue.textContent = config.godMode ? config.godSpeed.toFixed(1) : (choice.adjustable ? speedKmh.toFixed(1) : speedKmh.toString());
       selectedLabel.textContent = `Selected: ${choice.name} · ${choice.adjustable ? `${choice.min}–${choice.max} km/h` : `${choice.speed} km/h`}`;
       document.querySelectorAll(".card").forEach(card => {
         card.classList.toggle("active", card.dataset.id === id);
@@ -373,12 +418,12 @@
       userCoords = [latitude, longitude];
 
       if (!userMarker) {
-        userMarker = L.marker(userCoords, { icon: markerIcon })
+        userMarker = L.marker(userCoords, { icon: makePlayerIcon() })
           .addTo(map)
           .bindPopup("You are here")
           .openPopup();
       } else {
-        userMarker.setLatLng(userCoords);
+        userMarker.setLatLng(userCoords).setIcon(makePlayerIcon());
       }
 
       if (accuracy) {
@@ -404,7 +449,9 @@
         updateMessage("Waiting for your location before placing the chaser.");
         return;
       }
-      snailCoords = randomOffsetPoint(userCoords[0], userCoords[1], 5000);
+      const radius = Math.max(0, config.spawnRadius || 0);
+      const distance = config.randomSpawn ? Math.random() * radius : radius;
+      snailCoords = randomOffsetPoint(userCoords[0], userCoords[1], distance);
       if (!snailMarker) {
         snailMarker = L.marker(snailCoords, { icon: makeEmojiIcon(selectedEmoji) }).addTo(map).bindPopup("Chaser (moving)");
       } else {
@@ -451,29 +498,8 @@
       setStatus("Requesting location…", "Pending");
 
       speedInput.addEventListener("input", () => {
-        if (godToggle.checked) return;
+        if (config.godMode) return;
         speedKmh = parseFloat(speedInput.value);
-        speedValue.textContent = speedKmh.toFixed(1);
-      });
-
-      godToggle.addEventListener("change", () => {
-        const enabled = godToggle.checked;
-        speedInput.disabled = enabled || !characters.find(c => c.id === selectedCharId)?.adjustable;
-        godSpeedInput.disabled = !enabled;
-        if (enabled) {
-          speedKmh = parseFloat(godSpeedInput.value);
-        } else {
-          const c = characters.find(ch => ch.id === selectedCharId);
-          speedKmh = c.adjustable ? parseFloat(speedInput.value) : c.speed;
-        }
-        speedValue.textContent = speedKmh.toFixed(1);
-      });
-
-      godSpeedInput.addEventListener("input", () => {
-        if (!godToggle.checked) return;
-        const val = Math.min(10000, Math.max(0, parseFloat(godSpeedInput.value) || 0));
-        godSpeedInput.value = val;
-        speedKmh = val;
         speedValue.textContent = speedKmh.toFixed(1);
       });
 
@@ -492,6 +518,29 @@
         updateMessage("Pick a character to start chasing.");
       });
 
+      openSettingsBtn.addEventListener("click", () => {
+        settingsOverlay.classList.remove("hidden");
+        godToggle.checked = config.godMode;
+        godSpeedInput.value = config.godSpeed;
+        spawnRadiusInput.value = config.spawnRadius;
+        randomSpawnToggle.checked = config.randomSpawn;
+      });
+
+      settingsCancel.addEventListener("click", () => {
+        settingsOverlay.classList.add("hidden");
+      });
+
+      settingsApply.addEventListener("click", () => {
+        config.godMode = godToggle.checked;
+        config.godSpeed = Math.min(10000, Math.max(0, parseFloat(godSpeedInput.value) || 0));
+        config.spawnRadius = Math.min(50000, Math.max(100, parseFloat(spawnRadiusInput.value) || 0));
+        config.randomSpawn = randomSpawnToggle.checked;
+        godSpeedInput.value = config.godSpeed;
+        spawnRadiusInput.value = config.spawnRadius;
+        settingsOverlay.classList.add("hidden");
+        setCharacter(selectedCharId); // reapply speeds/controls
+      });
+
       resetGameBtn.addEventListener("click", () => {
         gameStarted = false;
         loseOverlay.classList.add("hidden");
@@ -508,9 +557,8 @@
       startBtn.addEventListener("click", () => {
         loseOverlay.classList.add("hidden");
         gameStarted = true;
-        if (!snailCoords) {
-          placeSnailRandom();
-        }
+        snailCoords = null;
+        placeSnailRandom();
         overlay.classList.add("hidden");
       });
 
