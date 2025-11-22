@@ -235,6 +235,10 @@
             <input id="join-code" type="text" placeholder="Enter code" maxlength="8" style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:var(--text);" />
             <button id="join-room" class="btn" type="button">Join room</button>
           </div>
+          <div class="start-row" id="room-start-row" style="display:none;">
+            <p class="status">Host can start the chase when ready.</p>
+            <button id="room-start-btn" class="start-btn" type="button">Start chase</button>
+          </div>
         </div>
       </div>
     </div>
@@ -363,6 +367,8 @@
     const joinRoomBtn = document.getElementById("join-room");
     const roomPill = document.getElementById("room-pill");
     const leaveRoomBtn = document.getElementById("leave-room");
+    const roomStartRow = document.getElementById("room-start-row");
+    const roomStartBtn = document.getElementById("room-start-btn");
     const characterGrid = document.getElementById("character-grid");
     const startBtn = document.getElementById("start-btn");
     const selectedLabel = document.getElementById("selected-label");
@@ -395,6 +401,8 @@
     let myPlayerId = null;
     let otherMarkers = new Map();
     let latestRoomState = null;
+    let wsStatus = "disconnected";
+    let wsReconnectTimer = null;
 
     const map = L.map("map", { zoomControl: true, worldCopyJump: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -433,6 +441,12 @@
       messageEl.textContent = text;
     }
 
+    function setWsStatus(text) {
+      wsStatus = text;
+      roomPill.textContent = roomCode ? `Room: ${roomCode} (${text})` : `WS: ${text}`;
+      roomPill.style.display = gameMode === "room" ? "inline-block" : "none";
+    }
+
     function setRoomStatus() {
       if (!gameMode) {
         roomStatus.textContent = "Choose a mode";
@@ -459,10 +473,12 @@
         restartBtn.style.display = "none";
         openSelectionBtn.style.display = "none";
         openSettingsBtn.style.display = "none";
+        roomStartRow.style.display = isHost ? "flex" : "none";
       } else {
         restartBtn.style.display = "inline-block";
         openSelectionBtn.style.display = "inline-block";
         openSettingsBtn.style.display = "inline-block";
+        roomStartRow.style.display = "none";
       }
       restartBtn.disabled = roomLocked;
       openSelectionBtn.disabled = roomLocked;
@@ -616,12 +632,37 @@
     function ensureSocket() {
       if (ws && ws.readyState === WebSocket.OPEN) return ws;
       if (ws) {
-        ws.close();
+        try { ws.close(); } catch {}
         ws = null;
       }
+      setWsStatus("connecting");
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
         console.log("WS connected");
+        setWsStatus("connected");
+        if (wsReconnectTimer) {
+          clearTimeout(wsReconnectTimer);
+          wsReconnectTimer = null;
+        }
+        // Resubscribe/join room after reconnect
+        if (gameMode === "room" && roomCode) {
+          sendWs({
+            type: isHost ? "create_room" : "join_room",
+            code: roomCode,
+            name: playerNickname,
+            emoji: selectedEmoji,
+            lat: userCoords?.[0] ?? null,
+            lng: userCoords?.[1] ?? null,
+            settings: isHost
+              ? {
+                  character: selectedCharId,
+                  speedKmh: config.godSpeed || speedKmh,
+                  spawnRadius: config.spawnRadius,
+                  randomSpawn: config.randomSpawn,
+                }
+              : undefined,
+          });
+        }
       };
       ws.onmessage = (evt) => {
         try {
@@ -631,11 +672,20 @@
           console.warn("WS parse error", e);
         }
       };
-      ws.onclose = () => {
-        console.log("WS closed");
+      ws.onclose = (evt) => {
+        console.log("WS closed", evt.code, evt.reason);
+        setWsStatus("disconnected");
+        ws = null;
+        if (gameMode === "room" && !wsReconnectTimer) {
+          wsReconnectTimer = setTimeout(() => {
+            wsReconnectTimer = null;
+            ensureSocket();
+          }, 3000);
+        }
       };
       ws.onerror = (e) => {
         console.error("WS error", e);
+        setWsStatus("error");
       };
       return ws;
     }
@@ -666,6 +716,7 @@
         roomCodeDisplay.textContent = roomCode;
         setRoomStatus();
         updateMessage(`Room created. Share code: ${roomCode}`);
+        setWsStatus("connected");
         return;
       }
       if (msg.type === "room_joined") {
@@ -674,6 +725,7 @@
         roomCodeDisplay.textContent = roomCode;
         setRoomStatus();
         updateMessage(`Joined room ${roomCode}. Share this code with others.`);
+        setWsStatus("connected");
         return;
       }
       if (msg.type === "state") {
@@ -1069,6 +1121,7 @@
         roomCodeDisplay.textContent = roomCode;
         gameMode = "room";
         roomLocked = false;
+        isHost = true;
         setRoomStatus();
         updateMessage(`Room created. Share code: ${roomCode}`);
         roomSettingsOverlay.classList.add("hidden");
@@ -1092,7 +1145,8 @@
             randomSpawn: config.randomSpawn,
           },
         });
-        startChase();
+        // Host must press start; show start button
+        roomStartRow.style.display = "flex";
       });
 
       leaveRoomBtn.addEventListener("click", () => {
@@ -1124,6 +1178,11 @@
       });
 
       startBtn.addEventListener("click", startChase);
+
+      roomStartBtn.addEventListener("click", () => {
+        if (!isHost) return;
+        startChase();
+      });
 
       characterGrid.addEventListener("click", (e) => {
         const card = e.target.closest(".card");

@@ -8,6 +8,7 @@ const PORT = process.env.PORT || 3001;
 const TICK_MS = 1000;
 const MAX_PLAYERS = 10;
 const CATCH_RADIUS_METERS = 3;
+const IDLE_TIMEOUT_MS = 1000 * 60 * 30; // 30 minutes
 
 const rooms = new Map();
 
@@ -255,6 +256,12 @@ wss.on("connection", (ws) => {
 
 setInterval(() => {
   for (const room of rooms.values()) {
+    // prune idle rooms
+    const idle = room.startedAt && now() - room.startedAt > IDLE_TIMEOUT_MS;
+    if (idle && room.players.size === 0) {
+      rooms.delete(room.code);
+      continue;
+    }
     tickRoom(room);
     broadcast(room, roomState(room));
   }
