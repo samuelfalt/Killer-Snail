@@ -1,0 +1,25 @@
+{
+  "name": "testplan",
+  "version": "1.0.0",
+  "description": "This repo has a single-page map game (`index.html`). Open it over HTTPS, allow location, pick a character, and a chaser will track you on the map.",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samuelfalt/Killer-Snail.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/samuelfalt/Killer-Snail/issues"
+  },
+  "homepage": "https://github.com/samuelfalt/Killer-Snail#readme",
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

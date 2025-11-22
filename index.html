@@ -323,6 +323,8 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
+    const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + (location.hostname === "localhost" ? "localhost:3001" : location.host);
+
     const statusEl = document.getElementById("status");
     const pillEl = document.getElementById("pill");
     const messageEl = document.getElementById("message");
@@ -388,6 +390,11 @@
     let roomCode = "";
     let roomLocked = false;
     let playerNickname = "You";
+    let ws = null;
+    let isHost = false;
+    let myPlayerId = null;
+    let otherMarkers = new Map();
+    let latestRoomState = null;
 
     const map = L.map("map", { zoomControl: true, worldCopyJump: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -412,6 +419,10 @@
       { id: "tiger", emoji: "🐯", name: "Tiger", speed: 50, min: 50, max: 50, adjustable: false },
       { id: "ninja", emoji: "🥷🏻", name: "Ninja", speed: 5, min: 2, max: 25, adjustable: true },
     ];
+    function charEmoji(id) {
+      const c = characters.find((x) => x.id === id);
+      return c ? c.emoji : selectedEmoji;
+    }
 
     function setStatus(text, pill) {
       statusEl.textContent = text;
@@ -494,7 +505,6 @@
         alert("Choose Solo or Multiplayer first.");
         return;
       }
-      loseOverlay.classList.add("hidden");
       if (gameMode === "room" && roomLocked) {
         alert("This room can’t be restarted. Create or join a new room.");
         return;
@@ -503,16 +513,24 @@
         alert("Create or join a room first to get a code.");
         return;
       }
+      loseOverlay.classList.add("hidden");
       gameStarted = true;
-      if (forceRespawn || !snailCoords || !snailMarker) {
-        if (snailMarker) {
-          map.removeLayer(snailMarker);
-          snailMarker = null;
+      if (gameMode === "solo") {
+        if (forceRespawn || !snailCoords || !snailMarker) {
+          if (snailMarker) {
+            map.removeLayer(snailMarker);
+            snailMarker = null;
+          }
+          snailCoords = null;
+          placeSnailRandom();
+        } else if (snailMarker) {
+          snailMarker.setIcon(makeEmojiIcon(selectedEmoji));
         }
-        snailCoords = null;
-        placeSnailRandom();
-      } else if (snailMarker) {
-        snailMarker.setIcon(makeEmojiIcon(selectedEmoji));
+      } else {
+        ensureSocket();
+        if (isHost) {
+          sendWs({ type: "start", code: roomCode });
+        }
       }
       overlay.classList.add("hidden");
       forceRespawn = false;
@@ -569,6 +587,10 @@
         snailMarker = null;
       }
       snailCoords = null;
+      for (const m of otherMarkers.values()) {
+        map.removeLayer(m);
+      }
+      otherMarkers.clear();
       setRoomStatus();
       updateMessage("Choose a mode to begin.");
     }
@@ -579,6 +601,141 @@
       const trimmed = input.trim();
       if (trimmed === "") return defaultName;
       return trimmed.slice(0, 24);
+    }
+
+    function makePlayerEmojiIcon(emoji) {
+      return L.divIcon({
+        className: "snail-icon",
+        html: emoji || "🧌",
+        iconSize: [32, 32],
+        iconAnchor: [16, 24],
+        popupAnchor: [0, -20]
+      });
+    }
+
+    function ensureSocket() {
+      if (ws && ws.readyState === WebSocket.OPEN) return ws;
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+      ws = new WebSocket(WS_URL);
+      ws.onopen = () => {
+        console.log("WS connected");
+      };
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          handleWsMessage(msg);
+        } catch (e) {
+          console.warn("WS parse error", e);
+        }
+      };
+      ws.onclose = () => {
+        console.log("WS closed");
+      };
+      ws.onerror = (e) => {
+        console.error("WS error", e);
+      };
+      return ws;
+    }
+
+    function sendWs(msg) {
+      const sock = ensureSocket();
+      if (sock.readyState === WebSocket.OPEN) {
+        sock.send(JSON.stringify(msg));
+      } else {
+        sock.addEventListener(
+          "open",
+          () => {
+            sock.send(JSON.stringify(msg));
+          },
+          { once: true }
+        );
+      }
+    }
+
+    function handleWsMessage(msg) {
+      if (msg.type === "error") {
+        alert(msg.message || "Server error");
+        return;
+      }
+      if (msg.type === "room_created") {
+        roomCode = msg.code;
+        myPlayerId = msg.playerId || myPlayerId;
+        roomCodeDisplay.textContent = roomCode;
+        setRoomStatus();
+        updateMessage(`Room created. Share code: ${roomCode}`);
+        return;
+      }
+      if (msg.type === "room_joined") {
+        roomCode = msg.code;
+        myPlayerId = msg.playerId || myPlayerId;
+        roomCodeDisplay.textContent = roomCode;
+        setRoomStatus();
+        updateMessage(`Joined room ${roomCode}. Share this code with others.`);
+        return;
+      }
+      if (msg.type === "state") {
+        latestRoomState = msg;
+        roomCode = msg.code;
+        roomLocked = msg.locked;
+        gameStarted = !!msg.running;
+        setRoomStatus();
+        if (msg.settings?.character) {
+          selectedEmoji = charEmoji(msg.settings.character);
+        }
+        if (msg.chaser) {
+          snailCoords = [msg.chaser.lat, msg.chaser.lng];
+          if (!snailMarker) {
+            snailMarker = L.marker(snailCoords, { icon: makeEmojiIcon(selectedEmoji) }).addTo(map).bindPopup("Chaser");
+          } else {
+            snailMarker.setLatLng(snailCoords).setIcon(makeEmojiIcon(selectedEmoji));
+          }
+        }
+        // Update other players
+        const seen = new Set();
+        if (Array.isArray(msg.players)) {
+          msg.players.forEach((p) => {
+            seen.add(p.id);
+            if (p.id === myPlayerId) return;
+            if (p.lat == null || p.lng == null) return;
+            let m = otherMarkers.get(p.id);
+            if (!m) {
+              m = L.marker([p.lat, p.lng], { icon: makePlayerEmojiIcon(p.emoji) })
+                .addTo(map)
+                .bindPopup(p.name || "Player");
+              m.bindTooltip(p.name || "Player", { permanent: true, direction: "top", offset: [0, -10] });
+              otherMarkers.set(p.id, m);
+            } else {
+              m.setLatLng([p.lat, p.lng]).setIcon(makePlayerEmojiIcon(p.emoji));
+              m.bindPopup(p.name || "Player");
+              m.bindTooltip(p.name || "Player", { permanent: true, direction: "top", offset: [0, -10] });
+            }
+          });
+        }
+        for (const [id, marker] of otherMarkers.entries()) {
+          if (!seen.has(id)) {
+            map.removeLayer(marker);
+            otherMarkers.delete(id);
+          }
+        }
+        // Handle end
+        if (msg.caughtId && msg.caughtId === myPlayerId) {
+          gameStarted = false;
+          loseOverlay.classList.remove("hidden");
+          setStatus("Caught", "Arrived");
+          const elapsed = msg.startedAt ? `${Math.floor((Date.now() - msg.startedAt) / 60000)}:${Math.floor(((Date.now() - msg.startedAt) / 1000) % 60).toString().padStart(2, "0")}` : "0:00";
+          const traveledKm = (msg.distanceTraveled / 1000).toFixed(3);
+          document.getElementById("lose-details").textContent =
+            `The chaser caught you. Time: ${elapsed} · Distance traveled: ${traveledKm} km`;
+        } else if (!msg.running && msg.locked) {
+          gameStarted = false;
+          setStatus("Idle", "Idle");
+          updateMessage("Room ended. Create/join again to restart.");
+        }
+        return;
+      }
     }
 
     function buildCharacterGrid() {
@@ -667,6 +824,9 @@
       if (gameStarted && !snailCoords) {
         placeSnailRandom();
       }
+      if (gameMode === "room" && roomCode) {
+        sendWs({ type: "loc", code: roomCode, lat: userCoords[0], lng: userCoords[1] });
+      }
     }
 
     function onLocationError(err) {
@@ -691,8 +851,21 @@
     }
 
     function stepChase() {
-      if (!gameStarted) {
+      if (!gameMode || !gameStarted) {
         lastStepAt = null;
+        return;
+      }
+      if (gameMode === "room") {
+        if (snailCoords && userCoords) {
+          const dist = distanceMeters(snailCoords, userCoords);
+          setStatus("Room chase", dist > 3 ? "Live" : "Arrived");
+          const elapsed = latestRoomState?.startedAt
+            ? `${Math.floor((Date.now() - latestRoomState.startedAt) / 60000)}:${Math.floor(((Date.now() - latestRoomState.startedAt) / 1000) % 60).toString().padStart(2, "0")}`
+            : formatElapsed();
+          const traveled = latestRoomState?.distanceTraveled ?? distanceTraveled;
+          const srvSpeed = latestRoomState?.settings?.speedKmh ?? speedKmh;
+          updateMessage(`Dist: ${dist.toFixed(1)} m · Speed: ${srvSpeed.toFixed(1)} km/h · Time: ${elapsed} · Traveled: ${(traveled / 1000).toFixed(3)} km`);
+        }
         return;
       }
       if (!userCoords || !snailCoords || !snailMarker) {
@@ -837,6 +1010,7 @@
         playerNickname = nick;
         updatePlayerLabel(userMarker);
         gameMode = "room";
+        isHost = false;
         roomCode = code.slice(0, 8);
         roomCodeDisplay.textContent = roomCode;
         setRoomStatus();
@@ -844,6 +1018,15 @@
         config.godMode = false;
         godToggle.checked = false;
         godToggle.disabled = true;
+        ensureSocket();
+        sendWs({
+          type: "join_room",
+          code: roomCode,
+          name: playerNickname,
+          emoji: selectedEmoji,
+          lat: userCoords?.[0] ?? null,
+          lng: userCoords?.[1] ?? null,
+        });
       });
 
       roomSettingsCancel.addEventListener("click", () => {
@@ -893,12 +1076,30 @@
         speedInput.value = speedKmh;
         speedValue.textContent = speedKmh.toFixed(1);
         forceRespawn = true;
+        ensureSocket();
+        isHost = true;
+        sendWs({
+          type: "create_room",
+          code: roomCode,
+          name: playerNickname,
+          emoji: selectedEmoji,
+          lat: userCoords?.[0] ?? null,
+          lng: userCoords?.[1] ?? null,
+          settings: {
+            character: chosenId,
+            speedKmh: chosenSpeed,
+            spawnRadius: config.spawnRadius,
+            randomSpawn: config.randomSpawn,
+          },
+        });
         startChase();
       });
 
       leaveRoomBtn.addEventListener("click", () => {
         resetMenu();
         playerNickname = "You";
+        myPlayerId = null;
+        isHost = false;
         overlay.classList.remove("hidden");
         loseOverlay.classList.add("hidden");
         setStatus("Selection", "Idle");
@@ -941,6 +1142,11 @@
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
       );
       setInterval(stepChase, 1000);
+      setInterval(() => {
+        if (gameMode === "room" && roomCode && userCoords) {
+          sendWs({ type: "loc", code: roomCode, lat: userCoords[0], lng: userCoords[1] });
+        }
+      }, 2000);
     }
 
     init();
