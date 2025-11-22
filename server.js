@@ -58,6 +58,7 @@ function roomState(room) {
   return {
     type: "state",
     code: room.code,
+    name: room.name,
     running: room.running,
     locked: room.locked,
     startedAt: room.startedAt,
@@ -77,9 +78,10 @@ function roomState(room) {
   };
 }
 
-function createRoom(code, hostPlayer, settings) {
+function createRoom(code, hostPlayer, settings, roomName) {
   const room = {
     code,
+    name: roomName || `${hostPlayer.name || "Host"}'s Room`,
     hostId: hostPlayer.id,
     players: new Map([[hostPlayer.id, hostPlayer]]),
     settings,
@@ -160,7 +162,7 @@ function handleMessage(ws, data) {
       spawnRadius: msg.settings?.spawnRadius || 5000,
       randomSpawn: !!msg.settings?.randomSpawn,
     };
-    const room = createRoom(code, player, settings);
+    const room = createRoom(code, player, settings, msg.roomName);
     ws.send(JSON.stringify({ type: "room_created", code, playerId: ws._id }));
     broadcast(room, roomState(room));
     return;
@@ -187,6 +189,21 @@ function handleMessage(ws, data) {
     room.players.set(player.id, player);
     ws.send(JSON.stringify({ type: "room_joined", code: room.code, playerId: ws._id }));
     broadcast(room, roomState(room));
+    return;
+  }
+
+  if (type === "list_rooms") {
+    const roomsList = [];
+    for (const room of rooms.values()) {
+      roomsList.push({
+        code: room.code,
+        name: room.name,
+        players: room.players.size,
+        running: room.running,
+        locked: room.locked,
+      });
+    }
+    ws.send(JSON.stringify({ type: "rooms", rooms: roomsList }));
     return;
   }
 
