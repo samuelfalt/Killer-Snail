@@ -479,12 +479,24 @@
         gameMode === "solo"
           ? "Solo mode"
           : gameMode === "mayhem"
-          ? "Mayhem"
+          ? "Mayhem (open room)"
           : `Room mode${roomLocked ? " (locked)" : ""}`;
       soloSection.style.display = gameMode === "solo" ? "block" : "none";
       roomSection.style.display = gameMode === "room" || gameMode === "mayhem" ? "block" : "none";
       roomPill.style.display = (gameMode === "room" || gameMode === "mayhem") && roomCode ? "inline-block" : "none";
       roomPill.textContent = roomCode ? `Room: ${roomCode}${wsStatus ? " (" + wsStatus + ")" : ""}` : "Room: ----";
+      if (gameMode === "mayhem") {
+        generateRoomBtn.style.display = "none";
+        joinRoomBtn.style.display = "none";
+        joinCodeInput.style.display = "none";
+        refreshRoomsBtn.style.display = "none";
+        roomsList.innerHTML = "<p class='status'>Mayhem is open. Joining…</p>";
+      } else {
+        generateRoomBtn.style.display = "inline-block";
+        joinRoomBtn.style.display = "inline-block";
+        joinCodeInput.style.display = "inline-block";
+        refreshRoomsBtn.style.display = "inline-block";
+      }
       if (gameMode === "room" || gameMode === "mayhem") {
         restartBtn.style.display = "none";
         openSelectionBtn.style.display = "none";
@@ -769,6 +781,7 @@
         if (Array.isArray(msg.players)) {
           const me = msg.players.find(p => p.id === myPlayerId);
           isHost = !!me?.isHost;
+          // If mayhem, first player acts as host until admin takes over
         }
         setRoomStatus();
         if (msg.settings?.character) {
@@ -1163,6 +1176,10 @@
       });
 
       joinRoomBtn.addEventListener("click", () => {
+        if (gameMode === "mayhem") {
+          updateMessage("Mayhem is open; no code needed. You are joining automatically.");
+          return;
+        }
         const code = joinCodeInput.value.trim().toUpperCase();
         if (!code) {
           alert("Enter a room code to join.");
