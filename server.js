@@ -99,9 +99,10 @@ function createRoom(code, hostPlayer, settings, roomName) {
   return room;
 }
 
-function nameExists(room, name) {
+function nameExists(room, name, excludeId) {
   const lower = (name || "").toLowerCase();
   for (const p of room.players.values()) {
+    if (excludeId && p.id === excludeId) continue;
     if ((p.name || "").toLowerCase() === lower) return true;
   }
   return false;
@@ -179,6 +180,7 @@ function handleMessage(ws, data) {
 
   if (type === "join_room") {
     let room = rooms.get(msg.code);
+    const joiningName = msg.name || "Player";
     if (!room && msg.mayhem) {
       const settings = {
         character: "snail",
@@ -188,7 +190,7 @@ function handleMessage(ws, data) {
       };
       const player = {
         id: ws._id,
-        name: msg.name || "Player",
+        name: joiningName,
         emoji: msg.emoji || "🧌",
         lat: msg.lat ?? null,
         lng: msg.lng ?? null,
@@ -204,13 +206,13 @@ function handleMessage(ws, data) {
       ws.send(JSON.stringify({ type: "error", message: "Room full" }));
       return;
     }
-    if (nameExists(room, msg.name || "Player")) {
+    if (nameExists(room, joiningName, ws._id)) {
       ws.send(JSON.stringify({ type: "error", message: "Name already used" }));
       return;
     }
     const player = {
       id: ws._id,
-      name: msg.name || "Player",
+      name: joiningName,
       emoji: msg.emoji || "🧌",
       lat: msg.lat ?? null,
       lng: msg.lng ?? null,
