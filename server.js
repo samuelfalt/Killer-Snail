@@ -9,6 +9,7 @@ const TICK_MS = 1000;
 const MAX_PLAYERS = 10;
 const CATCH_RADIUS_METERS = 3;
 const IDLE_TIMEOUT_MS = 1000 * 60 * 30; // 30 minutes
+const ADMIN_KEY = "0000";
 
 const rooms = new Map();
 
@@ -98,6 +99,14 @@ function createRoom(code, hostPlayer, settings, roomName) {
   return room;
 }
 
+function nameExists(room, name) {
+  const lower = (name || "").toLowerCase();
+  for (const p of room.players.values()) {
+    if ((p.name || "").toLowerCase() === lower) return true;
+  }
+  return false;
+}
+
 function tickRoom(room) {
   const nowTs = now();
   if (!room.running) {
@@ -169,13 +178,34 @@ function handleMessage(ws, data) {
   }
 
   if (type === "join_room") {
-    const room = rooms.get(msg.code);
+    let room = rooms.get(msg.code);
+    if (!room && msg.mayhem) {
+      const settings = {
+        character: "snail",
+        speedKmh: 0.048,
+        spawnRadius: 5000,
+        randomSpawn: false,
+      };
+      const player = {
+        id: ws._id,
+        name: msg.name || "Player",
+        emoji: msg.emoji || "🧌",
+        lat: msg.lat ?? null,
+        lng: msg.lng ?? null,
+        ws,
+      };
+      room = createRoom(msg.code, player, settings, "Mayhem");
+    }
     if (!room) {
       ws.send(JSON.stringify({ type: "error", message: "Room not found" }));
       return;
     }
     if (room.players.size >= MAX_PLAYERS) {
       ws.send(JSON.stringify({ type: "error", message: "Room full" }));
+      return;
+    }
+    if (nameExists(room, msg.name || "Player")) {
+      ws.send(JSON.stringify({ type: "error", message: "Name already used" }));
       return;
     }
     const player = {
@@ -219,7 +249,7 @@ function handleMessage(ws, data) {
     return;
   }
 
-  if (type === "settings" && ws._id === room.hostId && !room.running) {
+  if (type === "settings" && (ws._id === room.hostId || msg.adminKey === ADMIN_KEY) && !room.running) {
     room.settings = {
       character: msg.settings?.character || room.settings.character,
       speedKmh: msg.settings?.speedKmh || room.settings.speedKmh,
@@ -230,7 +260,7 @@ function handleMessage(ws, data) {
     return;
   }
 
-  if (type === "start" && ws._id === room.hostId && !room.running) {
+  if (type === "start" && (ws._id === room.hostId || msg.adminKey === ADMIN_KEY) && !room.running) {
     room.running = true;
     room.locked = true;
     room.startedAt = now();

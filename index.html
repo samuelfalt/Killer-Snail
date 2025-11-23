@@ -210,6 +210,7 @@
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button id="mode-solo" class="btn" type="button">Solo</button>
           <button id="mode-room" class="btn" type="button">Multiplayer</button>
+          <button id="mode-mayhem" class="btn" type="button">Mayhem</button>
         </div>
         <p class="status" id="room-status">Choose a mode</p>
       </div>
@@ -282,6 +283,7 @@
         <div style="display:flex; gap:10px;">
           <button id="settings-cancel" class="btn" type="button">Cancel</button>
           <button id="settings-apply" class="start-btn" type="button">Apply</button>
+          <button id="admin-btn" class="btn" type="button">Admin</button>
         </div>
       </div>
       <div style="margin-top:10px;">
@@ -361,6 +363,7 @@
     const playerNameInput = document.getElementById("player-name");
     const modeSoloBtn = document.getElementById("mode-solo");
     const modeRoomBtn = document.getElementById("mode-room");
+    const modeMayhemBtn = document.getElementById("mode-mayhem");
     const roomStatus = document.getElementById("room-status");
     const modeRow = document.getElementById("mode-row");
     const soloSection = document.getElementById("solo-section");
@@ -375,6 +378,7 @@
     const roomStartBtn = document.getElementById("room-start-btn");
     const refreshRoomsBtn = document.getElementById("refresh-rooms");
     const roomsList = document.getElementById("rooms-list");
+    const adminBtn = document.getElementById("admin-btn");
     const characterGrid = document.getElementById("character-grid");
     const startBtn = document.getElementById("start-btn");
     const selectedLabel = document.getElementById("selected-label");
@@ -404,6 +408,7 @@
     let playerNickname = "You";
     let ws = null;
     let isHost = false;
+    let isAdmin = false;
     let myPlayerId = null;
     let otherMarkers = new Map();
     let latestRoomState = null;
@@ -470,16 +475,21 @@
         return;
       }
       modeRow.style.display = "none";
-      roomStatus.textContent = gameMode === "solo" ? "Solo mode" : `Room mode${roomLocked ? " (locked)" : ""}`;
+      roomStatus.textContent =
+        gameMode === "solo"
+          ? "Solo mode"
+          : gameMode === "mayhem"
+          ? "Mayhem"
+          : `Room mode${roomLocked ? " (locked)" : ""}`;
       soloSection.style.display = gameMode === "solo" ? "block" : "none";
-      roomSection.style.display = gameMode === "room" ? "block" : "none";
-      roomPill.style.display = gameMode === "room" && roomCode ? "inline-block" : "none";
-      roomPill.textContent = roomCode ? `Room: ${roomCode}` : "Room: ----";
-      if (gameMode === "room") {
+      roomSection.style.display = gameMode === "room" || gameMode === "mayhem" ? "block" : "none";
+      roomPill.style.display = (gameMode === "room" || gameMode === "mayhem") && roomCode ? "inline-block" : "none";
+      roomPill.textContent = roomCode ? `Room: ${roomCode}${wsStatus ? " (" + wsStatus + ")" : ""}` : "Room: ----";
+      if (gameMode === "room" || gameMode === "mayhem") {
         restartBtn.style.display = "none";
         openSelectionBtn.style.display = "none";
         openSettingsBtn.style.display = "none";
-        roomStartRow.style.display = isHost ? "flex" : "none";
+        roomStartRow.style.display = (isHost || isAdmin) ? "flex" : "none";
       } else {
         restartBtn.style.display = "inline-block";
         openSelectionBtn.style.display = "inline-block";
@@ -531,8 +541,12 @@
         alert("This room can’t be restarted. Create or join a new room.");
         return;
       }
-      if (gameMode === "room" && !roomCode) {
+      if ((gameMode === "room" || gameMode === "mayhem") && !roomCode) {
         alert("Create or join a room first to get a code.");
+        return;
+      }
+      if (gameMode === "mayhem" && !(isHost || isAdmin)) {
+        alert("Only host/admin can start in Mayhem. Enter admin mode in Settings with password 0000.");
         return;
       }
       loseOverlay.classList.add("hidden");
@@ -550,8 +564,8 @@
         }
       } else {
         ensureSocket();
-        if (isHost) {
-          sendWs({ type: "start", code: roomCode });
+        if (isHost || isAdmin) {
+          sendWs({ type: "start", code: roomCode, adminKey: isAdmin ? "0000" : undefined });
         }
       }
       overlay.classList.add("hidden");
@@ -652,14 +666,15 @@
           wsReconnectTimer = null;
         }
         // Resubscribe/join room after reconnect
-        if (gameMode === "room" && roomCode) {
+        if ((gameMode === "room" || gameMode === "mayhem") && roomCode) {
           sendWs({
             type: "join_room",
             code: roomCode,
             name: playerNickname,
             emoji: selectedEmoji,
             lat: userCoords?.[0] ?? null,
-            lng: userCoords?.[1] ?? null
+            lng: userCoords?.[1] ?? null,
+            mayhem: gameMode === "mayhem"
           });
         }
       };
@@ -750,6 +765,11 @@
         roomCode = msg.code;
         roomLocked = msg.locked;
         gameStarted = !!msg.running;
+        // derive host flag
+        if (Array.isArray(msg.players)) {
+          const me = msg.players.find(p => p.id === myPlayerId);
+          isHost = !!me?.isHost;
+        }
         setRoomStatus();
         if (msg.settings?.character) {
           selectedEmoji = charEmoji(msg.settings.character);
@@ -1046,7 +1066,7 @@
       });
 
       settingsApply.addEventListener("click", () => {
-        config.godMode = godToggle.checked;
+        config.godMode = godToggle.checked && gameMode !== "mayhem";
         config.godSpeed = Math.min(10000, Math.max(0, parseFloat(godSpeedInput.value) || 0));
         config.spawnRadius = Math.min(50000, Math.max(100, parseFloat(spawnRadiusInput.value) || 0));
         config.randomSpawn = randomSpawnToggle.checked;
@@ -1064,6 +1084,30 @@
           playerNickname = "You";
         }
         updatePlayerLabel(userMarker);
+        if ((gameMode === "room" || gameMode === "mayhem") && (isHost || isAdmin) && ws) {
+          sendWs({
+            type: "settings",
+            code: roomCode,
+            adminKey: isAdmin ? "0000" : undefined,
+            settings: {
+              character: selectedCharId,
+              speedKmh: config.godMode ? config.godSpeed : speedKmh,
+              spawnRadius: config.spawnRadius,
+              randomSpawn: config.randomSpawn,
+            },
+          });
+        }
+      });
+
+      adminBtn.addEventListener("click", () => {
+        const pw = prompt("Enter admin password", "");
+        if (pw === "0000") {
+          isAdmin = true;
+          updateMessage("Admin mode enabled.");
+          setRoomStatus();
+        } else if (pw !== null) {
+          alert("Wrong password");
+        }
       });
 
       modeSoloBtn.addEventListener("click", () => {
@@ -1081,6 +1125,33 @@
         roomLocked = false;
         setRoomStatus();
         updateMessage("Multiplayer selected. Create or join a room.");
+      });
+
+      modeMayhemBtn.addEventListener("click", () => {
+        gameMode = "mayhem";
+        roomCode = "MAYHEM";
+        roomLocked = false;
+        isHost = false;
+        isAdmin = false;
+        setRoomStatus();
+        const nick = askNickname(playerNickname || "You");
+        if (nick === null) {
+          resetMenu();
+          return;
+        }
+        playerNickname = nick;
+        updatePlayerLabel(userMarker);
+        ensureSocket();
+        sendWs({
+          type: "join_room",
+          code: roomCode,
+          name: playerNickname,
+          emoji: selectedEmoji,
+          lat: userCoords?.[0] ?? null,
+          lng: userCoords?.[1] ?? null,
+          mayhem: true
+        });
+        updateMessage("Joined Mayhem. Wait for admin/host to start.");
       });
 
       generateRoomBtn.addEventListener("click", () => {
@@ -1118,6 +1189,7 @@
           emoji: selectedEmoji,
           lat: userCoords?.[0] ?? null,
           lng: userCoords?.[1] ?? null,
+          mayhem: false
         });
       });
 
@@ -1221,7 +1293,7 @@
       startBtn.addEventListener("click", startChase);
 
       roomStartBtn.addEventListener("click", () => {
-        if (!isHost) return;
+        if (!(isHost || isAdmin)) return;
         startChase();
       });
 
